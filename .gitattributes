@@ -1,3 +1,5 @@
 backend/models/** filter=lfs diff=lfs merge=lfs -text
 backend/data/*.db filter=lfs diff=lfs merge=lfs -text
 backend/data/*.faiss filter=lfs diff=lfs merge=lfs -text
+backend/data/deploy/*.db filter=lfs diff=lfs merge=lfs -text
+backend/data/deploy/*.faiss filter=lfs diff=lfs merge=lfs -text

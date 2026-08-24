@@ -18,6 +18,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # here would need repo/.git context that a build context alone does not include.
 COPY . .
 
+# The full local dataset (data/jobs.db, data/jobs.faiss) is too large for this
+# platform's free-tier RAM limit. data/deploy/ holds a smaller stratified sample
+# built by scripts/build_deploy_dataset.py + scripts/generate_embeddings.py,
+# swapped in here so local dev keeps the full dataset untouched.
+RUN cp data/deploy/jobs.db data/jobs.db && cp data/deploy/jobs.faiss data/jobs.faiss
+
 ENV OMP_NUM_THREADS=1
 EXPOSE 8000
 
