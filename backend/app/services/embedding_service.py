@@ -14,10 +14,7 @@ sentence-transformers all-MiniLM-L6-v2 output used to originally build the FAISS
 import os
 import threading
 
-import faiss
 import numpy as np
-import onnxruntime as ort
-from tokenizers import Tokenizer
 
 MODEL_DIR = os.environ.get(
     "ONNX_MODEL_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "models", "all-MiniLM-L6-v2-onnx")
@@ -36,11 +33,13 @@ _index = None
 _index_mtime = None
 
 
-def _get_session() -> ort.InferenceSession:
+def _get_session():
     global _session
     if _session is None:
         with _lock:
             if _session is None:
+                import onnxruntime as ort
+
                 onnx_path = os.path.join(MODEL_DIR, "model.onnx")
                 options = ort.SessionOptions()
                 options.intra_op_num_threads = 1
@@ -49,11 +48,13 @@ def _get_session() -> ort.InferenceSession:
     return _session
 
 
-def _get_tokenizer() -> Tokenizer:
+def _get_tokenizer():
     global _tokenizer
     if _tokenizer is None:
         with _lock:
             if _tokenizer is None:
+                from tokenizers import Tokenizer
+
                 tok = Tokenizer.from_file(os.path.join(MODEL_DIR, "tokenizer.json"))
                 tok.enable_padding()
                 tok.enable_truncation(max_length=MAX_SEQ_LENGTH)
@@ -66,6 +67,8 @@ def get_index():
     global _index, _index_mtime
     if not os.path.exists(FAISS_INDEX_PATH):
         return None
+    import faiss
+
     mtime = os.path.getmtime(FAISS_INDEX_PATH)
     if _index is None or mtime != _index_mtime:
         with _lock:

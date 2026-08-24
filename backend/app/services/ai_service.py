@@ -10,8 +10,6 @@ import json
 import logging
 import re
 
-import google.generativeai as genai
-
 logger = logging.getLogger("ai_service")
 
 GEMINI_MODEL_NAME = "gemini-3.5-flash-lite"
@@ -21,6 +19,8 @@ def _get_model(api_key: str):
     if not api_key:
         return None
     try:
+        import google.generativeai as genai
+
         genai.configure(api_key=api_key)
         return genai.GenerativeModel(GEMINI_MODEL_NAME)
     except Exception:

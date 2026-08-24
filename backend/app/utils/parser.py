@@ -1,11 +1,10 @@
 """Multi-format resume text extraction: PDF, DOCX, and plain text."""
 import io
 
-import fitz  # PyMuPDF
-from docx import Document
-
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
+    import fitz  # PyMuPDF
+
     text_parts = []
     with fitz.open(stream=file_bytes, filetype="pdf") as doc:
         for page in doc:
@@ -14,6 +13,8 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 def extract_text_from_docx(file_bytes: bytes) -> str:
+    from docx import Document
+
     doc = Document(io.BytesIO(file_bytes))
     return "\n".join(p.text for p in doc.paragraphs)
 
