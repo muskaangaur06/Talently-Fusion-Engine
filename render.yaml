@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     rootDir: backend
-    buildCommand: git lfs pull && pip install -r requirements.txt
+    buildCommand: curl -sL https://github.com/git-lfs/git-lfs/releases/download/v3.5.1/git-lfs-linux-amd64-v3.5.1.tar.gz | tar xz -C /tmp && /tmp/git-lfs-3.5.1/git-lfs install --local && /tmp/git-lfs-3.5.1/git-lfs pull && pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_PATH
