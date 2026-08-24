@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-paper text-ink;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+}
+
+::selection {
+  @apply bg-primary/20 text-primary-deep;
+}
+
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: theme("colors.line.DEFAULT") transparent;
+}
+
+.thin-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.thin-scroll::-webkit-scrollbar-thumb {
+  background-color: theme("colors.line.DEFAULT");
+  border-radius: 9999px;
+}

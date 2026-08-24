@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ai-job-board-backend
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: git lfs pull && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_PATH
+        value: ./data/jobs.db
+      - key: FAISS_INDEX_PATH
+        value: ./data/jobs.faiss
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: CORS_ORIGINS
+        value: https://your-frontend-domain.vercel.app
+      - key: OMP_NUM_THREADS
+        value: "1"

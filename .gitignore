@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Backend runtime logs
+backend/*.log
+backend/uvicorn.log
+backend/dedup_run.log
+
+# Environment secrets
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/vite.log
+
+# Local-only artifacts: raw source dataset (already ingested into jobs.db) and
+# unrelated personal files that ended up in the project root.
+query_result_*.json
+*.pdf
+
+# Internal planning/status docs, not part of the shipped product
+IMPLEMENTATION_STATUS.md
+implementation_plan.md
+README.md
+
+# Local-only dev scripts
+*.bat
+
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
