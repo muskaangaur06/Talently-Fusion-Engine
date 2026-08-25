@@ -8,7 +8,9 @@ A hybrid-retrieval job matching platform that pairs lexical and semantic search 
 
 Job search tooling tends to fail in one of two directions. Keyword-driven boards return literal matches and miss equivalent phrasing, so a candidate searching "ML engineer" never sees the "Applied Scientist" posting they are qualified for. Embedding-driven boards return topical neighbours and lose precision, surfacing roles that read similar but do not match on skills or seniority. Both leave the candidate to manually reconcile their resume against every listing.
 
-Talently addresses both by fusing two independent retrieval systems at the rank level, then scoring the fused candidate set against the candidate's actual resume across semantic, skill, and experience dimensions.
+The corpus itself compounds the problem before search even runs: 45,107 postings aggregated across five sources carry the same opening reposted under slightly varied titles, inconsistent experience and salary encoding, and free-text skill lists with no controlled vocabulary. Naive keyword search over a corpus like this returns duplicates in the top ten and misses semantically equivalent titles entirely.
+
+Talently addresses this on two levels: deduplication that removes near-identical reposts before indexing, and retrieval that fuses two independent ranking signals rather than relying on either alone. Matches are then scored against the candidate's actual resume across semantic, skill, and experience dimensions, and every generated document is checked against its source text before being returned.
 
 ### Scope
 
@@ -18,114 +20,19 @@ Talently addresses both by fusing two independent retrieval systems at the rank 
 
 ---
 
-## Situation, Task, Action, Result
+## Tech stack
 
-### Situation
+**Backend.** FastAPI 0.110 on Uvicorn. SQLite in WAL mode with FTS5 for lexical retrieval. FAISS 1.8 for vector search. ONNX Runtime 1.23 with the standalone `tokenizers` library for embedding inference. PyMuPDF and python-docx for document parsing. NumPy 1.26.
 
-A corpus of 45,107 postings aggregated across five sources carried the failure modes typical of aggregated listings: the same opening reposted under slightly varied titles, inconsistent experience and salary encoding, and free-text skill lists with no controlled vocabulary. Naive keyword search over this corpus returns duplicates in the top ten and misses semantically equivalent titles entirely.
+**Frontend.** React 18 with Vite 5 and Tailwind 3. React Router 6 for routing, Recharts 2 for visualisation, Axios for transport, react-markdown for rendering generated content.
 
-### Task
+**Model.** all-MiniLM-L6-v2 exported to ONNX. 384 dimensions, 256-token window, mean pooling with L2 normalisation, single-threaded intra-op and inter-op execution.
 
-Build a retrieval and matching system that returns relevant roles for natural-language queries without duplicate noise, ranks those roles against a specific candidate rather than against the query alone, and generates candidate-facing text that cannot fabricate details absent from the source material.
-
-### Action
-
-**Deduplication runs in three passes.** Exact-match collapse fingerprints `company|title|location` as an MD5 hash at ingestion. Near-duplicate collapse then compares titles within each `(company, location)` bucket using sequence similarity at a 0.92 threshold, gated by four guards that prevent over-merging: seniority markers must agree, stated experience ranges must agree, the leading significant title token must match, and titles differing only by requisition-code tokens are held distinct. Surviving groups retain the most recent posting within a 548-day repost window. Search indexes are rebuilt against the deduplicated table so lexical and vector indexes never drift from the row set they describe.
-
-**Retrieval fuses two independent rankers.** An FTS5 index provides BM25-ranked lexical retrieval. A FAISS flat index over 384-dimensional MiniLM embeddings provides semantic retrieval. Rather than blending raw scores, which requires calibrating incomparable scales, the two rank lists combine through Reciprocal Rank Fusion at `k=60`. Rank-based fusion is scale-free: it needs no normalisation and degrades gracefully when one ranker returns nothing useful.
-
-**Candidate scoring is a weighted composite** applied to the fused candidate set:
-
-```
-composite = 0.40 * semantic + 0.40 * skills + 0.20 * experience
-```
-
-The semantic term is cosine similarity between the resume embedding and the job's precomputed vector, reconstructed directly from the FAISS index rather than re-embedded per request. The skills term is Jaccard overlap between extracted resume skills and job skills. The experience term scores 1.0 inside the stated band, decays linearly outside it, and defaults to 0.5 when a posting states no range, so unstated ranges neither reward nor penalise.
-
-**Inference runs without a deep learning framework.** The embedding path uses ONNX Runtime and the standalone tokenizers library. Importing sentence-transformers pulls PyTorch into the process for what is ultimately a six-layer forward pass. Exporting the model to ONNX removes that dependency, cutting baseline resident memory from roughly 390MB to 150MB. Output was verified numerically identical to the original sentence-transformers implementation at cosine similarity 1.0, so the offline-built index and the runtime query encoder share one vector space.
-
-**Generated text is verified against its source before it is returned.** Cover letters, resume rewrites, and merged resumes each pass a word-overlap check against the originating resume and posting. Output falling below threshold is discarded in favour of a deterministic fallback. Every generative feature has a heuristic implementation behind it, so the system degrades to rule-based behaviour rather than failing when no model key is supplied.
-
-### Result
-
-Retrieval quality, measured across six probe queries spanning data, frontend, backend, DevOps, analytics, and product roles:
-
-| Metric | Value |
-|---|---|
-| NDCG@10 | 0.971 |
-| MRR | 1.000 |
-| Faithfulness audit | Pass |
-
-Per-query NDCG@10 ranges from 0.859 to 1.000, with the floor set by the product management probe where relevance judgement is inherently softer than for technical roles. MRR of 1.000 indicates the first result was relevant for every probe. The faithfulness audit confirms the heuristic chat path does not introduce a salary figure when the underlying posting states none.
-
-Ingestion throughput: streaming the source array element by element through `ijson` and deferring FTS5 indexing to a single bulk pass after insert reduced a full corpus load from a projected hour to roughly fifteen seconds, while holding peak memory in the tens of megabytes.
+**Generation.** Gemini, called with a client-supplied key per request and never persisted server-side. Every generative feature ships with a deterministic heuristic fallback, so the system degrades to rule-based behaviour rather than failing when no key is supplied.
 
 ---
 
-## Architecture
-
-```mermaid
-flowchart LR
-    subgraph Ingestion
-        A[Source feeds] --> B[Normalise schema]
-        B --> C[Fingerprint dedup]
-        C --> D[Near-duplicate dedup]
-    end
-
-    subgraph Indexing
-        D --> E[(SQLite)]
-        E --> F[FTS5 index]
-        E --> G[ONNX encoder]
-        G --> H[FAISS flat index]
-    end
-
-    subgraph Query
-        I[Query] --> J[Intent parse]
-        J --> K[FTS5 BM25]
-        J --> L[FAISS kNN]
-        K --> M[Reciprocal Rank Fusion]
-        L --> M
-    end
-
-    subgraph Scoring
-        M --> N[Composite score]
-        O[Resume] --> P[Parse skills and experience]
-        P --> N
-        N --> Q[Ranked matches]
-    end
-
-    F -.-> K
-    H -.-> L
-```
-
-### Request path
-
-```mermaid
-sequenceDiagram
-    participant U as Client
-    participant A as API
-    participant F as FTS5
-    participant V as FAISS
-    participant S as Scorer
-
-    U->>A: Query and resume
-    A->>A: Parse intent to structured filters
-    par Lexical
-        A->>F: BM25 over title, company, description, skills
-        F-->>A: Ranked ids
-    and Semantic
-        A->>V: kNN over 384-d embeddings
-        V-->>A: Ranked ids
-    end
-    A->>A: Reciprocal Rank Fusion at k=60
-    A->>S: Fused candidates and resume vector
-    S->>S: 0.40 semantic, 0.40 skills, 0.20 experience
-    S-->>U: Ranked matches with explanations
-```
-
----
-
-## Capabilities
+## Key features
 
 **Retrieval**
 - Natural-language query parsing into structured filters, with regex fallback
@@ -155,6 +62,76 @@ sequenceDiagram
 
 ---
 
+## How matching works
+
+**Deduplication runs in three passes before anything is indexed.** Exact-match collapse fingerprints `company|title|location` as an MD5 hash at ingestion. Near-duplicate collapse then compares titles within each `(company, location)` bucket using sequence similarity at a 0.92 threshold, gated by four guards that prevent over-merging: seniority markers must agree, stated experience ranges must agree, the leading significant title token must match, and titles differing only by requisition-code tokens are held distinct. Surviving groups retain the most recent posting within a 548-day repost window. Search indexes are rebuilt against the deduplicated table so lexical and vector indexes never drift from the row set they describe.
+
+**Retrieval fuses two independent rankers.** An FTS5 index provides BM25-ranked lexical retrieval. A FAISS flat index over the 384-dimensional embeddings provides semantic retrieval. Rather than blending raw scores, which requires calibrating incomparable scales, the two rank lists combine through Reciprocal Rank Fusion at `k=60`. Rank-based fusion is scale-free: it needs no normalisation and degrades gracefully when one ranker returns nothing useful.
+
+**Candidate scoring is a weighted composite** applied to the fused candidate set:
+
+```
+composite = 0.40 * semantic + 0.40 * skills + 0.20 * experience
+```
+
+The semantic term is cosine similarity between the resume embedding and the job's precomputed vector, reconstructed directly from the FAISS index rather than re-embedded per request. The skills term is Jaccard overlap between extracted resume skills and job skills. The experience term scores 1.0 inside the stated band, decays linearly outside it, and defaults to 0.5 when a posting states no range, so unstated ranges neither reward nor penalise.
+
+```mermaid
+flowchart LR
+    subgraph Ingestion
+        A[Source feeds] --> B[Normalise schema]
+        B --> C[Fingerprint dedup]
+        C --> D[Near-duplicate dedup]
+    end
+
+    subgraph Indexing
+        D --> E[(SQLite)]
+        E --> F[FTS5 index]
+        E --> G[ONNX encoder]
+        G --> H[FAISS flat index]
+    end
+
+    subgraph Query
+        Qy[Query] --> J[Intent parse]
+        J --> K[FTS5 BM25]
+        J --> L[FAISS kNN]
+        K --> M[Reciprocal Rank Fusion]
+        L --> M
+    end
+
+    subgraph Scoring
+        M --> N[Composite score]
+        O[Resume] --> P[Parse skills and experience]
+        P --> N
+        N --> Rk[Ranked matches]
+    end
+
+    F -.-> K
+    H -.-> L
+```
+
+**Inference runs without a deep learning framework.** The embedding path uses ONNX Runtime and the standalone tokenizers library rather than sentence-transformers, which pulls PyTorch into the process for what is ultimately a six-layer forward pass. Exporting the model to ONNX removes that dependency, cutting baseline resident memory from roughly 390MB to 150MB. Output was verified numerically identical to the original sentence-transformers implementation at cosine similarity 1.0, so the offline-built index and the runtime query encoder share one vector space.
+
+**Generated text is verified against its source before it is returned.** Cover letters, resume rewrites, and merged resumes each pass a word-overlap check against the originating resume and posting. Output falling below threshold is discarded in favour of the deterministic fallback.
+
+---
+
+## Measured results
+
+Retrieval quality, measured across six probe queries spanning data, frontend, backend, DevOps, analytics, and product roles:
+
+| Metric | Value |
+|---|---|
+| NDCG@10 | 0.971 |
+| MRR | 1.000 |
+| Faithfulness audit | Pass |
+
+Per-query NDCG@10 ranges from 0.859 to 1.000, with the floor set by the product management probe, where relevance judgement is inherently softer than for technical roles. MRR of 1.000 indicates the first result was relevant for every probe. The faithfulness audit confirms the heuristic chat path does not introduce a salary figure when the underlying posting states none.
+
+Ingestion throughput: streaming the source array element by element through `ijson` and deferring FTS5 indexing to a single bulk pass after insert reduced a full corpus load from a projected hour to roughly fifteen seconds, while holding peak memory in the tens of megabytes.
+
+---
+
 ## API
 
 | Method | Route | Purpose |
@@ -178,57 +155,23 @@ sequenceDiagram
 | GET | `/api/analytics` | Corpus distributions and salary percentiles |
 | GET | `/api/analytics/evaluation` | NDCG@10, MRR, faithfulness audit |
 
-Model-backed endpoints accept an optional `X-Gemini-API-Key` header. The key is used for the duration of the request and never persisted.
-
----
-
-## Stack
-
-**Backend.** FastAPI 0.110 on Uvicorn. SQLite in WAL mode with FTS5 for lexical retrieval. FAISS 1.8 for vector search. ONNX Runtime 1.23 with tokenizers 0.19 for embedding inference. PyMuPDF and python-docx for document parsing. NumPy 1.26.
-
-**Frontend.** React 18 with Vite 5 and Tailwind 3. React Router 6 for routing, Recharts 2 for visualisation, Axios for transport, react-markdown for generated content.
-
-**Model.** all-MiniLM-L6-v2 exported to ONNX. 384 dimensions, 256-token window, mean pooling with L2 normalisation, single-threaded intra-op and inter-op execution.
+Model-backed endpoints accept an optional `X-Gemini-API-Key` header.
 
 ---
 
 ## Data model
 
-```mermaid
-erDiagram
-    jobs ||--o| vector_mappings : "indexed by"
-    jobs ||--o| jobs_fts : "mirrored in"
+The `jobs` table carries the normalised posting. `jobs_fts` is an FTS5 virtual table mirroring the searchable columns. `vector_mappings` binds FAISS ordinal positions to job identifiers, which lets the scorer reconstruct a stored vector by index position instead of re-encoding text at request time. Indexes cover source, location, the experience band, and fingerprint.
 
-    jobs {
-        text job_id PK
-        text company_name
-        text title
-        text description
-        text location
-        text source
-        text posted_at
-        real salary_min
-        real salary_max
-        int experience_min
-        int experience_max
-        text skills
-        text domain
-        text fingerprint
-    }
-    vector_mappings {
-        int faiss_index PK
-        text job_id FK
-    }
-    jobs_fts {
-        text job_id
-        text title
-        text company_name
-        text description
-        text skills
-    }
 ```
+jobs(job_id PK, company_name, title, description, location, source, posted_at,
+     salary_min, salary_max, experience_min, experience_max, skills,
+     domain, fingerprint, created_at)
 
-`vector_mappings` binds FAISS ordinal positions to job identifiers, which lets the scorer reconstruct a stored vector by position instead of re-encoding text at request time. Indexes cover source, location, the experience band, and fingerprint.
+jobs_fts(job_id, title, company_name, description, skills)          -- FTS5
+
+vector_mappings(faiss_index PK, job_id FK -> jobs.job_id)
+```
 
 ---
 
