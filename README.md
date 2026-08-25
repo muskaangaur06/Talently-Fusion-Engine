@@ -4,35 +4,44 @@ A hybrid-retrieval job matching platform that pairs lexical and semantic search 
 
 ---
 
-## Overview
+## Problem and Approach
 
-Job search tooling tends to fail in one of two directions. Keyword-driven boards return literal matches and miss equivalent phrasing, so a candidate searching "ML engineer" never sees the "Applied Scientist" posting they are qualified for. Embedding-driven boards return topical neighbours and lose precision, surfacing roles that read similar but do not match on skills or seniority. Both leave the candidate to manually reconcile their resume against every listing.
+Keyword-only search misses equivalent phrasing ("ML engineer" never surfaces "Applied Scientist").
+Embedding-only search loses precision (topical neighbours that don't match on skill or seniority).
 
-The corpus itself compounds the problem before search even runs: **45,107 postings** aggregated across five sources carry the same opening reposted under slightly varied titles, inconsistent experience and salary encoding, and free-text skill lists with no controlled vocabulary. Naive keyword search over a corpus like this returns duplicates in the top ten and misses semantically equivalent titles entirely.
+**The corpus makes this worse:** 45,107 postings across five sources, full of reposted duplicates under varied titles, inconsistent salary/experience encoding, and free-text skills with no controlled vocabulary.
 
-Talently addresses this on two levels: deduplication that removes near-identical reposts before indexing, and retrieval that fuses two independent ranking signals rather than relying on either alone. Matches are then scored against the candidate's actual resume across semantic, skill, and experience dimensions, and every generated document is checked against its source text before being returned.
+```
+Dedup at ingestion  ->  Hybrid retrieval (lexical + semantic)  ->  Resume-aware composite score  ->  Grounded generation
+```
 
-### Scope
+**In scope:** ingestion and dedup, hybrid retrieval, resume parsing and scoring, skills-gap analysis, grounded generation (cover letters, resume rewrites, interview prep), market analytics, retrieval evaluation.
 
-**In scope:** job ingestion and normalisation, deduplication, hybrid retrieval, resume parsing and scoring, skills-gap analysis, grounded generation covering cover letters, resume rewrites and interview preparation, market analytics, and retrieval quality evaluation.
-
-**Out of scope:** employer-side posting and applicant tracking, authenticated multi-user accounts with server-side persistence, scheduled live scraping, and payment flows. Application tracking is client-side by design.
-
----
-
-## Tech stack
-
-**Backend.** FastAPI 0.110 on Uvicorn. SQLite in WAL mode with FTS5 for lexical retrieval. FAISS 1.8 for vector search. ONNX Runtime 1.23 with the standalone `tokenizers` library for embedding inference. PyMuPDF and python-docx for document parsing. NumPy 1.26.
-
-**Frontend.** React 18 with Vite 5 and Tailwind 3. React Router 6 for routing, Recharts 2 for visualisation, Axios for transport, react-markdown for rendering generated content.
-
-**Model.** all-MiniLM-L6-v2 exported to ONNX. 384 dimensions, 256-token window, mean pooling with L2 normalisation, single-threaded intra-op and inter-op execution.
-
-**Generation.** Gemini, called with a client-supplied key per request and never persisted server-side.
+**Out of scope:** employer-side posting/ATS, server-side multi-user accounts, scheduled live scraping, payments. Application tracking is client-side by design.
 
 ---
 
-## Key features
+## Tech Stack
+
+| Layer | Technology | Role |
+| --- | --- | --- |
+| API | FastAPI, Uvicorn | Request handling and routing |
+| Datastore | SQLite (WAL mode) | Primary storage |
+| Lexical search | SQLite FTS5, BM25 | Keyword retrieval |
+| Vector search | FAISS (flat index) | Semantic retrieval |
+| Embeddings | ONNX Runtime, tokenizers | Model inference, no PyTorch |
+| Embedding model | all-MiniLM-L6-v2 | 384-dim sentence vectors |
+| Document parsing | PyMuPDF, python-docx | PDF and DOCX resume extraction |
+| Generation | Gemini | Cover letters, rewrites, chat, interview prep |
+| Frontend | React 18, Vite 5 | Application shell and build |
+| Styling | Tailwind 3 | UI |
+| Routing | React Router 6 | Client navigation |
+| Charts | Recharts 2 | Analytics visualisation |
+| Transport | Axios | API client |
+
+---
+
+## Key Features
 
 **Retrieval**
 - Natural-language query parsing into structured filters, with regex fallback
@@ -45,7 +54,7 @@ Talently addresses this on two levels: deduplication that removes near-identical
 - Skill and experience extraction against a controlled vocabulary
 - Composite scoring with a deterministic, human-readable explanation per match
 - Skills-gap analysis against live demand for a target role, with curated study links
-- Comparison across up to three resume versions, returning either a recommendation or a merged draft
+- Comparison across up to three resume versions, returning a recommendation or a merged draft
 
 **Grounded generation**
 - ATS keyword analysis against a specific posting
@@ -57,68 +66,40 @@ Talently addresses this on two levels: deduplication that removes near-identical
 **Analytics**
 - Corpus-level distribution across sources, locations, domains, and seniority
 - Salary percentiles and skill demand ranking
-- Personalised market view computed over the candidate's qualifying matches
+- Personalised market view over the candidate's qualifying matches
 - Retrieval quality metrics exposed as a live endpoint
 
 ---
 
-## How matching works
-
-**Deduplication runs in three passes before anything is indexed.** Exact-match collapse fingerprints `company|title|location` as an MD5 hash at ingestion. Near-duplicate collapse then compares titles within each `(company, location)` bucket using sequence similarity at a **0.92 threshold**, gated by **four guards** that prevent over-merging: seniority markers must agree, stated experience ranges must agree, the leading significant title token must match, and titles differing only by requisition-code tokens are held distinct. A bare similarity threshold without these guards would merge "Engineer II" into "Engineer" and collapse genuinely distinct openings; each guard corresponds to an over-merge observed in the corpus. Surviving groups retain the most recent posting within a 548-day repost window. Search indexes are rebuilt against the deduplicated table so lexical and vector indexes never drift from the row set they describe, and duplicates are removed once at ingestion rather than filtered on every query.
-
-**Retrieval fuses two independent rankers.** An FTS5 index provides BM25-ranked lexical retrieval. A FAISS flat index over the 384-dimensional embeddings provides semantic retrieval. BM25 scores and L2 distances sit on different, corpus-dependent scales, so rather than blending them directly, the two rank lists combine through **Reciprocal Rank Fusion at k=60**, which consumes only ordinal position. This makes fusion stable as the corpus changes and robust when one ranker returns nothing useful, with no score normalisation to maintain.
-
-**Candidate scoring is a weighted composite** applied to the fused candidate set:
+## Matching Pipeline
 
 ```
-composite = 0.40 * semantic + 0.40 * skills + 0.20 * experience
+Dedup       exact fingerprint  ->  fuzzy title match (0.92 threshold, 4 guards)  ->  keep newest within 548 days  ->  index rebuild
+Retrieval   FTS5 BM25   ->\
+            FAISS kNN   -->  Reciprocal Rank Fusion (k=60)  ->  fused candidates
+Scoring     0.40 semantic + 0.40 skills (Jaccard) + 0.20 experience  ->  ranked matches
 ```
 
-The semantic term is cosine similarity between the resume embedding and the job's precomputed vector, reconstructed directly from the FAISS index by index position rather than re-embedded per request, turning what would be one forward pass per candidate into one pass for the resume alone. The skills term is Jaccard overlap between extracted resume skills and job skills. The experience term scores 1.0 inside the stated band, decays linearly outside it, and defaults to 0.5 when a posting states no range, so unstated ranges neither reward nor penalise.
+- **Dedup guards** prevent over-merging: seniority markers must agree, stated experience ranges must agree, the leading title token must match, requisition-code-only differences are held distinct. Without these, "Engineer II" collapses into "Engineer."
+- **Rank fusion, not score blending.** BM25 and L2 distance sit on different scales; fusing by rank position needs no normalisation and stays stable as the corpus changes.
+- **Vector reconstruction, not re-embedding.** Resume-to-job scoring reconstructs each job's stored vector by index position, turning what would be one forward pass per candidate into one pass total.
+- **No deep learning framework at runtime.** ONNX Runtime replaces sentence-transformers/PyTorch, cutting baseline memory from roughly 390MB to 150MB, verified at cosine similarity 1.0 against the original model.
+- **Generated text is checked against its source.** Cover letters, rewrites, and merged resumes require lexical overlap with the originating resume and posting before being returned; anything below threshold falls back to a deterministic version.
 
 ```mermaid
 flowchart LR
-    subgraph Ingestion
-        A[Source feeds] --> B[Normalise schema]
-        B --> C[Fingerprint dedup]
-        C --> D[Near-duplicate dedup]
-    end
-
-    subgraph Indexing
-        D --> E[(SQLite)]
-        E --> F[FTS5 index]
-        E --> G[ONNX encoder]
-        G --> H[FAISS flat index]
-    end
-
-    subgraph Query
-        Qy[Query] --> J[Intent parse]
-        J --> K[FTS5 BM25]
-        J --> L[FAISS kNN]
-        K --> M[Reciprocal Rank Fusion]
-        L --> M
-    end
-
-    subgraph Scoring
-        M --> N[Composite score]
-        O[Resume] --> P[Parse skills and experience]
-        P --> N
-        N --> Rk[Ranked matches]
-    end
-
-    F -.-> K
-    H -.-> L
+    A[Corpus] --> B[Dedup]
+    B --> C[(SQLite + FTS5 + FAISS)]
+    D[Query] --> E[Rank Fusion]
+    C --> E
+    F[Resume] --> G[Composite Score]
+    E --> G
+    G --> H[Ranked Matches]
 ```
-
-**Inference runs without a deep learning framework.** The embedding path uses ONNX Runtime and the standalone tokenizers library rather than sentence-transformers, which pulls PyTorch into the process for what is ultimately a six-layer forward pass. Exporting the model to ONNX removes that dependency, **cutting baseline resident memory from roughly 390MB to 150MB**. Output was verified numerically identical to the original sentence-transformers implementation at **cosine similarity 1.0**, so the offline-built index and the runtime query encoder share one vector space.
-
-**Generated text is verified against its source before it is returned.** Cover letters, resume rewrites, and merged resumes each pass a word-overlap check against the originating resume and posting, on the premise that fluent output inventing an employer, a date, or a figure is worse than blunt output that does not. Output falling below threshold is discarded in favour of the deterministic fallback that every generative feature carries, so the system degrades to rule-based behaviour rather than failing outright when no model key is supplied.
 
 ---
 
-## Measured results
-
-Retrieval quality, measured across six probe queries spanning data, frontend, backend, DevOps, analytics, and product roles:
+## Measured Results
 
 | Metric | Value |
 |---|---|
@@ -126,42 +107,18 @@ Retrieval quality, measured across six probe queries spanning data, frontend, ba
 | MRR | 1.000 |
 | Faithfulness audit | Pass |
 
-Per-query NDCG@10 ranges from 0.859 to 1.000, with the floor set by the product management probe, where relevance judgement is inherently softer than for technical roles. **MRR of 1.000 indicates the first result was relevant for every probe.** The faithfulness audit confirms the heuristic chat path does not introduce a salary figure when the underlying posting states none.
-
-Ingestion throughput: streaming the source array element by element through `ijson` holds peak memory in the tens of megabytes regardless of corpus size. Incremental FTS5 updates slow as an index grows and come to dominate ingestion time on a large corpus, so indexing is deferred to a single bulk pass after insert instead, which **reduced a full corpus load from a projected hour to roughly fifteen seconds**.
-
----
-
-## Interface
-
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/jobs` | Hybrid search with filters and pagination |
-| GET | `/api/jobs/{id}` | Single posting |
-| GET | `/api/jobs/{id}/similar` | Vector-neighbour postings |
-| POST | `/api/recommendations/upload-resume` | Parse resume to text, skills, experience |
-| POST | `/api/recommendations/match` | Score and rank postings against a resume |
-| POST | `/api/recommendations/fit-score` | Single-posting score with explanation |
-| POST | `/api/recommendations/skills-gap` | Held versus missing skills against demand |
-| POST | `/api/recommendations/ats-analyze` | ATS keyword coverage |
-| POST | `/api/recommendations/optimize-phrasing` | Bullet-level rewrite suggestions |
-| POST | `/api/recommendations/boost-resume` | Weak-line rewrite with score delta |
-| POST | `/api/recommendations/cover-letter` | Grounded cover letter |
-| POST | `/api/recommendations/compare-resumes` | Recommend or merge across versions |
-| POST | `/api/recommendations/personalized-analytics` | Market view over qualifying matches |
-| POST | `/api/chat/parse-intent` | Query to structured filters |
-| POST | `/api/chat` | Career chat grounded in posting and resume |
-| POST | `/api/chat/interview-prep` | Gap-weighted interview questions |
-| GET | `/api/analytics` | Corpus distributions and salary percentiles |
-| GET | `/api/analytics/evaluation` | NDCG@10, MRR, faithfulness audit |
-
-Model-backed endpoints accept an optional `X-Gemini-API-Key` header.
+- Per-query NDCG@10 ranges 0.859 to 1.000; floor is the product-management probe, where relevance judgement is inherently softer than for technical roles.
+- MRR of 1.000: the first result was relevant on every probe query.
+- Faithfulness audit confirms the heuristic chat path never invents a salary figure absent from the posting.
+- Ingestion: streamed parsing keeps peak memory in the tens of megabytes; deferring FTS5 indexing to one bulk pass cut a full corpus load from a projected hour to roughly fifteen seconds.
 
 ---
 
-## Data model
+## Data Model
 
-The `jobs` table carries the normalised posting. `jobs_fts` is an FTS5 virtual table mirroring the searchable columns. `vector_mappings` binds FAISS ordinal positions to job identifiers, which lets the scorer reconstruct a stored vector by index position instead of re-encoding text at request time. Indexes cover source, location, the experience band, and fingerprint.
+- `jobs`: the normalised posting record
+- `jobs_fts`: FTS5 mirror of the searchable columns
+- `vector_mappings`: binds FAISS index position to job id, enabling reconstruction instead of re-encoding
 
 ```
 jobs(job_id PK, company_name, title, description, location, source, posted_at,
@@ -175,7 +132,7 @@ vector_mappings(faiss_index PK, job_id FK -> jobs.job_id)
 
 ---
 
-## Repository map
+## Repository Map
 
 ```
 job board/
@@ -202,7 +159,7 @@ job board/
 
 ---
 
-## Environment variables
+## Environment Variables
 
 | Variable | Purpose |
 | --- | --- |
@@ -210,13 +167,13 @@ job board/
 | `FAISS_INDEX_PATH` | Path to the FAISS index file |
 | `EMBEDDING_MODEL` | Embedding model identifier (`all-MiniLM-L6-v2`) |
 | `CORS_ORIGINS` | Comma-separated list of allowed frontend origins |
-| `OMP_NUM_THREADS` | Caps BLAS/FAISS thread count; keeps memory and CPU usage predictable under concurrent requests |
+| `OMP_NUM_THREADS` | Caps BLAS/FAISS thread count for predictable memory and CPU use |
 
-`GEMINI_API_KEY` is never read from the environment in the running service. Every model-backed endpoint takes the key per request through an `X-Gemini-API-Key` header, so no key is stored server-side and a missing key simply routes to the heuristic path.
+`GEMINI_API_KEY` is never read server-side. Every model-backed endpoint takes the key per request via `X-Gemini-API-Key`; a missing key routes to the heuristic path.
 
 ---
 
-## Running locally
+## Running Locally
 
 Backend:
 
@@ -234,7 +191,7 @@ npm install
 npm run dev
 ```
 
-The API serves on port 8000 and the client on 5173.
+API on port 8000, client on 5173.
 
 Corpus preparation, in order:
 
@@ -245,17 +202,17 @@ python scripts/dedupe_near_duplicates.py # fuzzy dedup with guards
 python scripts/generate_embeddings.py    # build FAISS index and mappings
 ```
 
-Torch is a dependency of the conversion script alone and is never imported by the running service.
+Torch is a dependency of the conversion script alone; the running service never imports it.
 
 ---
 
-## Development and testing
+## Development and Testing
 
 ```bash
-# verify WAL mode, FTS5 row-count parity, and FAISS/vector_mappings consistency
+# WAL mode, FTS5 row-count parity, FAISS/vector_mappings consistency
 python backend/tests/verify_pipeline.py
 
-# retrieval quality: NDCG@10, MRR, faithfulness audit over probe queries
+# retrieval quality: NDCG@10, MRR, faithfulness audit
 curl http://localhost:8000/api/analytics/evaluation
 
 # frontend build check
@@ -266,9 +223,8 @@ cd frontend && npm run build
 
 ## Troubleshooting
 
-- **FTS5 row count does not match the `jobs` table**: the FTS5 table is populated in a single bulk pass after ingestion rather than kept in sync incrementally; re-run `scripts/ingest_data.py` if the two have diverged, or run `verify_pipeline.py` to confirm.
-- **FAISS search returns stale or missing results after a data change**: the index is rebuilt, not updated in place; re-run `scripts/generate_embeddings.py` after any change to `jobs.db` so `vector_mappings` and the FAISS file describe the same row set.
-- **A generative feature always returns the heuristic version**: confirm the `X-Gemini-API-Key` header is present on the request; a missing or invalid key falls back silently by design rather than returning an error.
-- **A resume upload is rejected**: only PDF, DOCX, TXT, and Markdown are supported, and the file must be under 10MB; corrupted PDFs and mislabeled DOCX files are normalised to a single readable error rather than an unhandled failure.
-- **Cross-origin requests are blocked in the browser**: confirm the frontend origin is included in `CORS_ORIGINS`.
-
+- **FTS5 count mismatch:** the table populates in one bulk pass after ingestion, not incrementally. Re-run `ingest_data.py` or check with `verify_pipeline.py`.
+- **Stale FAISS results:** the index rebuilds rather than updates in place. Re-run `generate_embeddings.py` after any change to `jobs.db`.
+- **Generative feature returns only the heuristic version:** confirm `X-Gemini-API-Key` is present; a missing or invalid key falls back silently by design.
+- **Resume upload rejected:** only PDF, DOCX, TXT, and Markdown are supported, under 10MB. Corrupted or mislabeled files return one clean error.
+- **CORS errors in the browser:** confirm the frontend origin is listed in `CORS_ORIGINS`.
