@@ -175,6 +175,47 @@ vector_mappings(faiss_index PK, job_id FK -> jobs.job_id)
 
 ---
 
+## Repository map
+
+```
+job board/
+├── backend/
+│   ├── app/
+│   │   ├── api/            jobs, recommendations, chat, analytics routers
+│   │   ├── db/              SQLite connection, WAL setup, schema definitions
+│   │   ├── services/         embedding_service (ONNX + FAISS), ai_service (Gemini
+│   │   │                    + heuristic fallbacks), evaluation_service, learning_resources
+│   │   ├── utils/            resume parsing (PDF/DOCX/TXT), skill and experience extraction
+│   │   └── main.py           app wiring, CORS, startup schema init
+│   ├── scripts/               offline pipeline: export_onnx_model, ingest_data,
+│   │                          dedupe_near_duplicates, generate_embeddings
+│   ├── tests/                 pipeline verification (WAL mode, FTS5/FAISS consistency)
+│   └── data/                  jobs.db, jobs.faiss (generated, not hand-authored)
+└── frontend/
+    └── src/
+        ├── pages/              Landing, Login, Home, JobDetails, Recommendations,
+        │                      Analytics, Applications
+        ├── context/             ResumeContext, ApplicationsContext (client-side state)
+        ├── components/          ChatAssistant and shared UI
+        └── services/            api.js, the single axios client boundary
+```
+
+---
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_PATH` | Path to the SQLite database file |
+| `FAISS_INDEX_PATH` | Path to the FAISS index file |
+| `EMBEDDING_MODEL` | Embedding model identifier (`all-MiniLM-L6-v2`) |
+| `CORS_ORIGINS` | Comma-separated list of allowed frontend origins |
+| `OMP_NUM_THREADS` | Caps BLAS/FAISS thread count; keeps memory and CPU usage predictable under concurrent requests |
+
+`GEMINI_API_KEY` is never read from the environment in the running service. Every model-backed endpoint takes the key per request through an `X-Gemini-API-Key` header, so no key is stored server-side and a missing key simply routes to the heuristic path.
+
+---
+
 ## Running locally
 
 Backend:
@@ -193,7 +234,7 @@ npm install
 npm run dev
 ```
 
-The API serves on port 8000 and the client on 5173. `CORS_ORIGINS` controls permitted origins. `DATABASE_PATH` and `FAISS_INDEX_PATH` override default artifact locations.
+The API serves on port 8000 and the client on 5173.
 
 Corpus preparation, in order:
 
@@ -205,6 +246,31 @@ python scripts/generate_embeddings.py    # build FAISS index and mappings
 ```
 
 Torch is a dependency of the conversion script alone and is never imported by the running service.
+
+---
+
+## Development and testing
+
+```bash
+# verify WAL mode, FTS5 row-count parity, and FAISS/vector_mappings consistency
+python backend/tests/verify_pipeline.py
+
+# retrieval quality: NDCG@10, MRR, faithfulness audit over probe queries
+curl http://localhost:8000/api/analytics/evaluation
+
+# frontend build check
+cd frontend && npm run build
+```
+
+---
+
+## Troubleshooting
+
+- **FTS5 row count does not match the `jobs` table**: the FTS5 table is populated in a single bulk pass after ingestion rather than kept in sync incrementally; re-run `scripts/ingest_data.py` if the two have diverged, or run `verify_pipeline.py` to confirm.
+- **FAISS search returns stale or missing results after a data change**: the index is rebuilt, not updated in place; re-run `scripts/generate_embeddings.py` after any change to `jobs.db` so `vector_mappings` and the FAISS file describe the same row set.
+- **A generative feature always returns the heuristic version**: confirm the `X-Gemini-API-Key` header is present on the request; a missing or invalid key falls back silently by design rather than returning an error.
+- **A resume upload is rejected**: only PDF, DOCX, TXT, and Markdown are supported, and the file must be under 10MB; corrupted PDFs and mislabeled DOCX files are normalised to a single readable error rather than an unhandled failure.
+- **Cross-origin requests are blocked in the browser**: confirm the frontend origin is included in `CORS_ORIGINS`.
 
 ---
 
