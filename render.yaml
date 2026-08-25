@@ -13,6 +13,6 @@ services:
       - key: EMBEDDING_MODEL
         value: all-MiniLM-L6-v2
       - key: CORS_ORIGINS
-        value: https://your-frontend-domain.vercel.app
+        value: https://talentlyfusion.vercel.app
       - key: OMP_NUM_THREADS
         value: "1"
