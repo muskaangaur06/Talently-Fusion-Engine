@@ -238,20 +238,6 @@ job board/
 
 ---
 
-## Environment Variables
-
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_PATH` | Path to the SQLite database file |
-| `FAISS_INDEX_PATH` | Path to the FAISS index file |
-| `EMBEDDING_MODEL` | Embedding model identifier (`all-MiniLM-L6-v2`) |
-| `CORS_ORIGINS` | Comma-separated list of allowed frontend origins |
-| `OMP_NUM_THREADS` | Caps BLAS/FAISS thread count for predictable memory and CPU use |
-
-`GEMINI_API_KEY` is never read server-side. Every model-backed endpoint takes the key per request via `X-Gemini-API-Key`; a missing key routes to the heuristic path.
-
----
-
 ## Running Locally
 
 Backend:
@@ -297,13 +283,3 @@ curl http://localhost:8000/api/analytics/evaluation
 # frontend build check
 cd frontend && npm run build
 ```
-
----
-
-## Troubleshooting
-
-- **FTS5 count mismatch:** the table populates in one bulk pass after ingestion, not incrementally. Re-run `ingest_data.py` or check with `verify_pipeline.py`.
-- **Stale FAISS results:** the index rebuilds rather than updates in place. Re-run `generate_embeddings.py` after any change to `jobs.db`.
-- **Generative feature returns only the heuristic version:** confirm `X-Gemini-API-Key` is present; a missing or invalid key falls back silently by design.
-- **Resume upload rejected:** only PDF, DOCX, TXT, and Markdown are supported, under 10MB. Corrupted or mislabeled files return one clean error.
-- **CORS errors in the browser:** confirm the frontend origin is listed in `CORS_ORIGINS`.
