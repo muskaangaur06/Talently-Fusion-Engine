@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320" font-family="Helvetica, Arial, sans-serif">
+  <rect width="720" height="320" fill="#0d1117"/>
+  <text x="360" y="34" fill="#e6edf3" font-size="18" font-weight="700" text-anchor="middle">Composite Match Score</text>
+  <text x="360" y="54" fill="#8b949e" font-size="12" text-anchor="middle">Three weighted signals, computed per candidate, per job</text>
+
+  <!-- donut chart, center 190,180, radius 90, stroke 36 -->
+  <!-- circumference = 2*pi*90 = 565.48 -->
+  <!-- semantic 40% = 226.19, skills 40% = 226.19, experience 20% = 113.10 -->
+  <g transform="translate(190,180)">
+    <circle r="90" fill="none" stroke="#21262d" stroke-width="36"/>
+    <!-- semantic: 0 to 226.19 -->
+    <circle r="90" fill="none" stroke="#58a6ff" stroke-width="36"
+      stroke-dasharray="226.19 339.29" stroke-dashoffset="0" transform="rotate(-90)"/>
+    <!-- skills: 226.19 to 452.38 -->
+    <circle r="90" fill="none" stroke="#3fb950" stroke-width="36"
+      stroke-dasharray="226.19 339.29" stroke-dashoffset="-226.19" transform="rotate(-90)"/>
+    <!-- experience: 452.38 to 565.48 -->
+    <circle r="90" fill="none" stroke="#d29922" stroke-width="36"
+      stroke-dasharray="113.10 452.38" stroke-dashoffset="-452.38" transform="rotate(-90)"/>
+    <text x="0" y="-4" fill="#e6edf3" font-size="22" font-weight="700" text-anchor="middle">composite</text>
+    <text x="0" y="18" fill="#8b949e" font-size="12" text-anchor="middle">match score</text>
+  </g>
+
+  <!-- legend -->
+  <g transform="translate(400,90)">
+    <rect x="0" y="0" width="16" height="16" rx="3" fill="#58a6ff"/>
+    <text x="24" y="13" fill="#e6edf3" font-size="14" font-weight="700">40%  Semantic similarity</text>
+    <text x="24" y="30" fill="#8b949e" font-size="11">cosine similarity, resume vector vs job vector</text>
+
+    <rect x="0" y="55" width="16" height="16" rx="3" fill="#3fb950"/>
+    <text x="24" y="68" fill="#e6edf3" font-size="14" font-weight="700">40%  Skills overlap</text>
+    <text x="24" y="85" fill="#8b949e" font-size="11">Jaccard similarity, resume skills vs job skills</text>
+
+    <rect x="0" y="110" width="16" height="16" rx="3" fill="#d29922"/>
+    <text x="24" y="123" fill="#e6edf3" font-size="14" font-weight="700">20%  Experience fit</text>
+    <text x="24" y="140" fill="#8b949e" font-size="11">full score in band, linear decay outside it</text>
+  </g>
+</svg>

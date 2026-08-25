@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="260" viewBox="0 0 720 260" font-family="Helvetica, Arial, sans-serif">
+  <rect width="720" height="260" fill="#0d1117"/>
+  <text x="360" y="34" fill="#e6edf3" font-size="18" font-weight="700" text-anchor="middle">Corpus Ingestion Time</text>
+  <text x="360" y="54" fill="#8b949e" font-size="12" text-anchor="middle">Row-by-row FTS5 indexing vs one deferred bulk pass</text>
+
+  <!-- horizontal bars -->
+  <text x="100" y="110" fill="#c9d1d9" font-size="13" text-anchor="end">Incremental</text>
+  <rect x="110" y="92" width="480" height="30" rx="6" fill="#f85149" fill-opacity="0.85"/>
+  <text x="600" y="112" fill="#e6edf3" font-size="14" font-weight="700">~60 min (projected)</text>
+
+  <text x="100" y="176" fill="#c9d1d9" font-size="13" text-anchor="end">Deferred bulk</text>
+  <rect x="110" y="158" width="6" height="30" rx="3" fill="#3fb950"/>
+  <text x="130" y="178" fill="#e6edf3" font-size="14" font-weight="700">~15 sec (measured)</text>
+
+  <text x="360" y="230" fill="#6e7681" font-size="10" text-anchor="middle">45,107 postings, streamed via ijson, peak memory in the tens of megabytes</text>
+</svg>

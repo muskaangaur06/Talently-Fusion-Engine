@@ -1,51 +1,162 @@
+<div align="center">
+
 # Talently
 
-A hybrid-retrieval job matching platform that pairs lexical and semantic search with resume-aware scoring, and grounds every generated artifact in source text rather than model recall.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-0f172a?style=for-the-badge&logo=fastapi&logoColor=white)](#)
+[![React](https://img.shields.io/badge/React-18-0f172a?style=for-the-badge&logo=react&logoColor=61DAFB)](#)
+[![FAISS](https://img.shields.io/badge/FAISS-vector%20search-0f172a?style=for-the-badge&color=4CAF50)](#)
+[![SQLite](https://img.shields.io/badge/SQLite-FTS5-0f172a?style=for-the-badge&logo=sqlite&logoColor=white)](#)
+[![ONNX](https://img.shields.io/badge/ONNX-runtime-0f172a?style=for-the-badge&color=2196F3)](#)
+[![Gemini](https://img.shields.io/badge/Gemini-grounded%20generation-0f172a?style=for-the-badge&color=8b5cf6)](#)
+
+### *Hybrid retrieval and resume-aware matching, built so search stays accurate on messy data and generated text never lies to the reader.*
+
+[![NDCG@10](https://img.shields.io/badge/NDCG%4010-0.971-2ea043)](#measured-results)
+[![MRR](https://img.shields.io/badge/MRR-1.000-2ea043)](#measured-results)
+[![Corpus](https://img.shields.io/badge/corpus-45%2C107%20postings-30363d)](#the-corpus-problem)
+
+</div>
 
 ---
 
-## Problem and Approach
+## The Corpus Problem
 
-Keyword-only search misses equivalent phrasing ("ML engineer" never surfaces "Applied Scientist").
-Embedding-only search loses precision (topical neighbours that don't match on skill or seniority).
+Every job board inherits the same two failures.
 
-**The corpus makes this worse:** 45,107 postings across five sources, full of reposted duplicates under varied titles, inconsistent salary/experience encoding, and free-text skills with no controlled vocabulary.
+Search on keywords, and "ML engineer" never finds "Applied Scientist," even though it is the same job under a different name. Search on meaning alone, and precision collapses, the results feel related but stop matching your actual skills or seniority.
+
+Underneath both, the data itself resists cleanup. **45,107 postings**, aggregated across five sources, with the same opening reposted under drifting titles, inconsistent salary and experience encoding, and skills written as free text with no shared vocabulary.
+
+Talently was built to survive exactly that: retrieval that stays accurate when the data is dirty, and generation that is checked against its source before a candidate ever reads it.
+
+---
+
+## How Talently Works
+
+<div align="center">
+
+<table>
+<tr>
+<td align="center" valign="top" width="25%">
+
+### Corpus
+
+</td>
+<td align="center" valign="top" width="25%">
+
+### Retrieval
+
+</td>
+<td align="center" valign="top" width="25%">
+
+### Scoring
+
+</td>
+<td align="center" valign="top" width="25%">
+
+### Generation
+
+</td>
+</tr>
+<tr>
+<td align="center" valign="top" width="25%">
+
+Fingerprint dedup
+Fuzzy dedup, 4 guards
+FTS5 + FAISS indexing
+
+</td>
+<td align="center" valign="top" width="25%">
+
+BM25 lexical rank
+FAISS semantic rank
+Reciprocal Rank Fusion
+
+</td>
+<td align="center" valign="top" width="25%">
+
+40% semantic
+40% skills
+20% experience
+
+</td>
+<td align="center" valign="top" width="25%">
+
+Gemini, grounded
+Word-overlap check
+Heuristic fallback
+
+</td>
+</tr>
+</table>
+
+</div>
+
+---
+
+## The Matching Pipeline
 
 ```
-Dedup at ingestion  ->  Hybrid retrieval (lexical + semantic)  ->  Resume-aware composite score  ->  Grounded generation
+Dedup       exact fingerprint  ->  fuzzy title match (0.92, 4 guards)  ->  keep newest within 548 days
+Retrieval   FTS5 BM25   ->\
+            FAISS kNN   -->  Reciprocal Rank Fusion (k=60)  ->  fused candidates
+Scoring     0.40 semantic + 0.40 skills (Jaccard) + 0.20 experience  ->  ranked matches
 ```
 
-**In scope:** ingestion and dedup, hybrid retrieval, resume parsing and scoring, skills-gap analysis, grounded generation (cover letters, resume rewrites, interview prep), market analytics, retrieval evaluation.
+<img src="docs/charts/scoring_weights.svg" width="100%" alt="Composite match score breakdown" />
 
-**Out of scope:** employer-side posting/ATS, server-side multi-user accounts, scheduled live scraping, payments. Application tracking is client-side by design.
+**Dedup guards** stop over-merging. Seniority markers must agree. Experience ranges must agree. The leading title token must match. Requisition-code-only differences stay distinct. Without these four checks, "Engineer II" quietly collapses into "Engineer."
 
----
+**Rank fusion, not score blending.** BM25 scores and vector distances sit on different scales, so fusing raw numbers is fragile. Fusing by rank position needs no normalisation and stays stable as the corpus grows.
 
-## Tech Stack
+**Vector reconstruction, not re-embedding.** Scoring a resume against 500 candidates reconstructs each job's stored vector by index position instead of re-running the model, turning 500 forward passes into one.
 
-| Layer | Technology | Role |
-| --- | --- | --- |
-| API | FastAPI, Uvicorn | Request handling and routing |
-| Datastore | SQLite (WAL mode) | Primary storage |
-| Lexical search | SQLite FTS5, BM25 | Keyword retrieval |
-| Vector search | FAISS (flat index) | Semantic retrieval |
-| Embeddings | ONNX Runtime, tokenizers | Model inference, no PyTorch |
-| Embedding model | all-MiniLM-L6-v2 | 384-dim sentence vectors |
-| Document parsing | PyMuPDF, python-docx | PDF and DOCX resume extraction |
-| Generation | Gemini | Cover letters, rewrites, chat, interview prep |
-| Frontend | React 18, Vite 5 | Application shell and build |
-| Styling | Tailwind 3 | UI |
-| Routing | React Router 6 | Client navigation |
-| Charts | Recharts 2 | Analytics visualisation |
-| Transport | Axios | API client |
+**Generated text is checked before it's shown.** Cover letters, rewrites, and merged resumes are compared against the source resume and posting for lexical overlap. Fall below threshold, and the output is discarded for a deterministic version instead.
+
+```mermaid
+flowchart LR
+    A[Corpus] --> B[Dedup]
+    B --> C[(SQLite + FTS5 + FAISS)]
+    D[Query] --> E[Rank Fusion]
+    C --> E
+    F[Resume] --> G[Composite Score]
+    E --> G
+    G --> H[Ranked Matches]
+```
 
 ---
 
-## Key Features
+## No Deep Learning Framework at Runtime
+
+<img src="docs/charts/memory_footprint.svg" width="100%" alt="Memory footprint, PyTorch vs ONNX Runtime" />
+
+`sentence-transformers` pulls PyTorch into the process for what is, at inference time, a six-layer forward pass. The embedding model is exported to ONNX once, offline; the live service runs on ONNX Runtime and a standalone tokenizer instead. Output was verified numerically identical to the original model, cosine similarity 1.0, so nothing about accuracy was traded for the memory cut.
+
+<img src="docs/charts/ingestion_speed.svg" width="100%" alt="Ingestion time, incremental vs deferred indexing" />
+
+Incremental FTS5 updates slow down as an index grows and come to dominate ingestion time on a large corpus. Deferring indexing to a single bulk pass after insert, combined with streaming the source file through `ijson` instead of loading it whole, keeps peak memory in the tens of megabytes regardless of corpus size.
+
+---
+
+## Measured Results
+
+<img src="docs/charts/ndcg_per_query.svg" width="100%" alt="NDCG at 10 per probe query" />
+
+| Metric | Value | What it means |
+|---|---|---|
+| NDCG@10 | **0.971** | The top 10 results are ranked correctly, almost every time |
+| MRR | **1.000** | The first result was relevant on every single probe query |
+| Faithfulness audit | **Pass** | The system never invents a salary figure absent from the posting |
+
+The lowest-scoring probe is product management, where relevance judgement is inherently softer than for a technical role like frontend development, where the skill match is close to binary. This isn't a number run once and archived. It's exposed as a live endpoint, recomputed on demand.
+
+---
+
+## What's Inside
 
 **Retrieval**
-- Natural-language query parsing into structured filters, with regex fallback
-- Hybrid lexical and semantic search across the corpus
+- Natural-language query parsing into structured filters, with a regex fallback
+- Hybrid lexical and semantic search across the full corpus
 - Filtering by location, source, experience band, domain, and posting age
 - Similar-role retrieval from any posting
 
@@ -71,54 +182,18 @@ Dedup at ingestion  ->  Hybrid retrieval (lexical + semantic)  ->  Resume-aware 
 
 ---
 
-## Matching Pipeline
+## Where the Model Is Used, and Where It Isn't
 
-```
-Dedup       exact fingerprint  ->  fuzzy title match (0.92 threshold, 4 guards)  ->  keep newest within 548 days  ->  index rebuild
-Retrieval   FTS5 BM25   ->\
-            FAISS kNN   -->  Reciprocal Rank Fusion (k=60)  ->  fused candidates
-Scoring     0.40 semantic + 0.40 skills (Jaccard) + 0.20 experience  ->  ranked matches
-```
-
-- **Dedup guards** prevent over-merging: seniority markers must agree, stated experience ranges must agree, the leading title token must match, requisition-code-only differences are held distinct. Without these, "Engineer II" collapses into "Engineer."
-- **Rank fusion, not score blending.** BM25 and L2 distance sit on different scales; fusing by rank position needs no normalisation and stays stable as the corpus changes.
-- **Vector reconstruction, not re-embedding.** Resume-to-job scoring reconstructs each job's stored vector by index position, turning what would be one forward pass per candidate into one pass total.
-- **No deep learning framework at runtime.** ONNX Runtime replaces sentence-transformers/PyTorch, cutting baseline memory from roughly 390MB to 150MB, verified at cosine similarity 1.0 against the original model.
-- **Generated text is checked against its source.** Cover letters, rewrites, and merged resumes require lexical overlap with the originating resume and posting before being returned; anything below threshold falls back to a deterministic version.
-
-```mermaid
-flowchart LR
-    A[Corpus] --> B[Dedup]
-    B --> C[(SQLite + FTS5 + FAISS)]
-    D[Query] --> E[Rank Fusion]
-    C --> E
-    F[Resume] --> G[Composite Score]
-    E --> G
-    G --> H[Ranked Matches]
-```
-
----
-
-## Measured Results
-
-| Metric | Value |
+| Layer | Powered by |
 |---|---|
-| NDCG@10 | 0.971 |
-| MRR | 1.000 |
-| Faithfulness audit | Pass |
+| Search, ranking, scoring, deduplication | Deterministic code, no model call |
+| Cover letters, resume rewrites, interview prep, chat | Gemini, with a heuristic fallback on every single one |
 
-- Per-query NDCG@10 ranges 0.859 to 1.000; floor is the product-management probe, where relevance judgement is inherently softer than for technical roles.
-- MRR of 1.000: the first result was relevant on every probe query.
-- Faithfulness audit confirms the heuristic chat path never invents a salary figure absent from the posting.
-- Ingestion: streamed parsing keeps peak memory in the tens of megabytes; deferring FTS5 indexing to one bulk pass cut a full corpus load from a projected hour to roughly fifteen seconds.
+Every model-backed feature ships with a rule-based fallback that runs when no API key is supplied, or when the model call fails. ATS matching falls back to direct keyword presence checking. Resume rewriting falls back to pattern-based phrasing fixes. Interview prep falls back to a skill-gap-weighted question bank. Nothing goes dark; generation quality degrades, availability does not.
 
 ---
 
 ## Data Model
-
-- `jobs`: the normalised posting record
-- `jobs_fts`: FTS5 mirror of the searchable columns
-- `vector_mappings`: binds FAISS index position to job id, enabling reconstruction instead of re-encoding
 
 ```
 jobs(job_id PK, company_name, title, description, location, source, posted_at,
@@ -129,6 +204,8 @@ jobs_fts(job_id, title, company_name, description, skills)          -- FTS5
 
 vector_mappings(faiss_index PK, job_id FK -> jobs.job_id)
 ```
+
+`vector_mappings` binds FAISS index position to job id, which is what makes vector reconstruction possible instead of re-encoding on every scoring pass.
 
 ---
 

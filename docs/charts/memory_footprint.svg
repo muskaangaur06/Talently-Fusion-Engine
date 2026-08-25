@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="300" viewBox="0 0 720 300" font-family="Helvetica, Arial, sans-serif">
+  <rect width="720" height="300" fill="#0d1117"/>
+  <text x="360" y="34" fill="#e6edf3" font-size="18" font-weight="700" text-anchor="middle">Runtime Memory Footprint</text>
+  <text x="360" y="54" fill="#8b949e" font-size="12" text-anchor="middle">Embedding inference: PyTorch stack vs ONNX Runtime</text>
+
+  <!-- baseline -->
+  <line x1="180" y1="240" x2="620" y2="240" stroke="#30363d" stroke-width="1"/>
+
+  <!-- PyTorch bar: 390MB, scale so 390 -> 160px height -->
+  <rect x="230" y="76.9" width="110" height="163.1" rx="6" fill="#f85149" fill-opacity="0.85"/>
+  <text x="285" y="66.9" fill="#e6edf3" font-size="16" font-weight="700" text-anchor="middle">~390 MB</text>
+  <text x="285" y="260" fill="#c9d1d9" font-size="13" text-anchor="middle">sentence-transformers</text>
+  <text x="285" y="276" fill="#8b949e" font-size="11" text-anchor="middle">(PyTorch runtime)</text>
+
+  <!-- ONNX bar: 150MB -->
+  <rect x="430" y="177.3" width="110" height="62.7" rx="6" fill="#3fb950" fill-opacity="0.9"/>
+  <text x="485" y="167.3" fill="#e6edf3" font-size="16" font-weight="700" text-anchor="middle">~150 MB</text>
+  <text x="485" y="260" fill="#c9d1d9" font-size="13" text-anchor="middle">ONNX Runtime</text>
+  <text x="485" y="276" fill="#8b949e" font-size="11" text-anchor="middle">(this project)</text>
+
+  <!-- arrow -->
+  <path d="M 345 158 L 425 158" stroke="#8b949e" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="385" y="145" fill="#8b949e" font-size="11" text-anchor="middle">-61%</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <text x="360" y="292" fill="#6e7681" font-size="10" text-anchor="middle">Output verified at cosine similarity 1.0 against the original model</text>
+</svg>
