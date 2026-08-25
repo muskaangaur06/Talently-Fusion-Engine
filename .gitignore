@@ -28,7 +28,6 @@ query_result_*.json
 # Internal planning/status docs, not part of the shipped product
 IMPLEMENTATION_STATUS.md
 implementation_plan.md
-README.md
 
 # Local-only dev scripts
 *.bat
