@@ -29,16 +29,6 @@ frontend/vite.log
 query_result_*.json
 *.pdf
 
-# Internal planning/status docs, not part of the shipped product
-IMPLEMENTATION_STATUS.md
-implementation_plan.md
-PROJECT_TALKING_POINTS.md
-Talently_Explanation_Video_Script.docx
-~$*.docx
-
-# Local demo/prep artifacts, not part of the shipped product
-*Resume*.docx
-demo_resume_*.docx
 
 # Local-only dev scripts
 *.bat
