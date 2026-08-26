@@ -35,8 +35,8 @@ def get_analytics():
             SELECT
                 CASE
                     WHEN experience_min IS NULL THEN 'Not specified'
-                    WHEN experience_min = 0 THEN 'Entry level (0-1 yrs)'
-                    WHEN experience_min BETWEEN 1 AND 3 THEN 'Junior (1-3 yrs)'
+                    WHEN experience_min <= 1 THEN 'Fresher / Intern (0-1 yrs)'
+                    WHEN experience_min BETWEEN 2 AND 3 THEN 'Junior (2-3 yrs)'
                     WHEN experience_min BETWEEN 4 AND 7 THEN 'Mid (4-7 yrs)'
                     ELSE 'Senior (8+ yrs)'
                 END as bucket,

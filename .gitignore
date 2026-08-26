@@ -9,6 +9,10 @@ backend/*.log
 backend/uvicorn.log
 backend/dedup_run.log
 
+# SQLite WAL/shared-memory sidecars, recreated at runtime
+*.db-wal
+*.db-shm
+
 # Environment secrets
 .env
 backend/.env

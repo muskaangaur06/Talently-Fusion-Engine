@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import ChatAssistant from "../components/ChatAssistant.jsx";
 import JobCard from "../components/JobCard.jsx";
 import { useApplications } from "../context/ApplicationsContext.jsx";
@@ -72,10 +72,14 @@ export default function JobDetails() {
   const [coverLetter, setCoverLetter] = useState(null);
   const [generatingLetter, setGeneratingLetter] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    api.getJob(jobId).then(setJob);
-    api.getSimilarJobs(jobId).then((data) => setSimilar(data.jobs || []));
+    setNotFound(false);
+    // A job_id that no longer exists (stale link, or a posting removed by the
+    // dedup pass) returns 404 - surface that instead of spinning forever.
+    api.getJob(jobId).then(setJob).catch(() => setNotFound(true));
+    api.getSimilarJobs(jobId).then((data) => setSimilar(data.jobs || [])).catch(() => setSimilar([]));
     // Reset per-job AI results when navigating between jobs so stale data from the
     // previous job never lingers on screen.
     setFit(null);
@@ -168,6 +172,23 @@ export default function JobDetails() {
     if (!job) return;
     addApplication(job, status);
   };
+
+  if (notFound) {
+    return (
+      <div className="mx-auto max-w-md rounded-2xl bg-card p-8 text-center shadow-[0_2px_10px_rgba(35,39,43,0.08)]">
+        <h2 className="text-lg font-extrabold text-ink">This role is no longer listed</h2>
+        <p className="mt-2 text-sm text-ink-faint">
+          The posting may have been closed or merged with a duplicate listing.
+        </p>
+        <Link
+          to="/app"
+          className="mt-5 inline-block rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
+        >
+          Back to search
+        </Link>
+      </div>
+    );
+  }
 
   if (!job) {
     return (

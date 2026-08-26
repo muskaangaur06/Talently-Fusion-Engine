@@ -1,7 +1,7 @@
 import math
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.db.database import db_session
@@ -164,7 +164,7 @@ def get_job(job_id: str):
         cursor.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
         row = cursor.fetchone()
         if not row:
-            return {"error": "Job not found"}
+            raise HTTPException(status_code=404, detail="Job not found")
         return row_to_job_dict(row)
 
 
@@ -175,7 +175,7 @@ def get_similar_jobs(job_id: str, limit: int = Query(6, ge=1, le=20)):
         cursor.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,))
         row = cursor.fetchone()
         if not row:
-            return {"error": "Job not found"}
+            raise HTTPException(status_code=404, detail="Job not found")
         job = row_to_job_dict(row)
         query_text = f"{job['title']} {' '.join(job['skills'])} {job['domain']}"
         similar_ids = _vector_search_job_ids(conn, query_text, limit=limit + 1)

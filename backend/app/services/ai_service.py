@@ -101,6 +101,21 @@ LOCATION_ALIASES = {
 
 KNOWN_SOURCES = ["linkedin", "naukri", "indeed", "internshala"]
 
+# A fresher role tops out at 1 year of required experience. Anything a posting
+# labels intern, fresher, trainee, graduate or entry level falls in this band,
+# as does an explicit "0-1 years".
+FRESHER_MAX_YEARS = 1
+FRESHER_QUERY_PATTERN = (
+    r"\bfresher(?:s)?\b"
+    r"|\bintern(?:ship|s)?\b"
+    r"|\bentry[\s\-]?level\b"
+    r"|\btrainee(?:s)?\b"
+    r"|\bgraduate\b|\bfresh\s+graduate\b"
+    r"|\bno\s+(?:prior\s+)?experience\b"
+    r"|\b0\s*[-to]+\s*1\s*(?:years|yrs|year)?\b"
+    r"|\b0\s*(?:years|yrs|year)\b"
+)
+
 
 def parse_query_intent_heuristic(query: str) -> dict:
     q_lower = query.lower()
@@ -118,15 +133,22 @@ def parse_query_intent_heuristic(query: str) -> dict:
             q_lower = q_lower.replace(src, "")
             break
 
-    exp_match = re.search(r"(\d+)\s*\+?\s*(?:years|yrs|year)", q_lower)
-    if exp_match:
-        filters["min_experience"] = int(exp_match.group(1))
-        q_lower = q_lower.replace(exp_match.group(0), "")
-
-    fresher_match = re.search(r"fresher|entry.level|0.experience", q_lower)
+    # Intern, fresher, graduate and "0-1 years" all describe the same audience:
+    # someone with no professional experience yet. They are treated as one band
+    # so that searching any of these terms returns the same set of roles.
+    # Checked before the generic "N years" match below, because phrasings like
+    # "0-1 years" and "0 years experience" would otherwise be read as a plain
+    # minimum of 0 or 1 with no upper bound, which is not a fresher search.
+    fresher_match = re.search(FRESHER_QUERY_PATTERN, q_lower)
     if fresher_match:
         filters["min_experience"] = 0
-        filters["max_experience"] = 1
+        filters["max_experience"] = FRESHER_MAX_YEARS
+        q_lower = q_lower.replace(fresher_match.group(0), "")
+    else:
+        exp_match = re.search(r"(\d+)\s*\+?\s*(?:years|yrs|year)", q_lower)
+        if exp_match:
+            filters["min_experience"] = int(exp_match.group(1))
+            q_lower = q_lower.replace(exp_match.group(0), "")
 
     tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9+.#]*", q_lower)
     keywords = [t for t in tokens if t not in STOPWORDS and len(t) > 1]
