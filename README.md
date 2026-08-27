@@ -2,7 +2,8 @@
 
 # Talently
 
-[![Live App](https://img.shields.io/badge/Live-talentlyfusion.vercel.app-2ea043?style=for-the-badge)](https://talentlyfusion.vercel.app)
+#### Website &nbsp;·&nbsp; [talentlyfusion.vercel.app](https://talentlyfusion.vercel.app) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [Demonstration Video](https://drive.google.com/file/d/1pnDxUdFr-KIVG7hz4uflvJWz-OzgJ32B/view?usp=sharing)
+
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-0f172a?style=for-the-badge&logo=fastapi&logoColor=white)](#)
 [![React](https://img.shields.io/badge/React-18-0f172a?style=for-the-badge&logo=react&logoColor=61DAFB)](#)
